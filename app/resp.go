@@ -5,14 +5,21 @@ import (
 	"io"
 	"fmt"
 	"strconv"
+	"reflect"
+	"errors"
 )
 
+type DeserializationError struct
+
 const (
-	SIMPLE_STRING = '+'
-	ERROR         = '-'
-	INTEGER       = ':'
-	BULK_STRING   = '$'
-	ARRAY         = '*'
+	SIMPLE_STRING	= '+'
+	ERROR        	= '-'
+	INTEGER      	= ':'
+	NULL 		 	= '_'
+	BULK_STRING  	= '$'
+	ARRAY        	= '*'
+	BOOLEAN	     	= '#'
+	MAP				= '%'
 )
 
 type Value struct {
@@ -21,6 +28,8 @@ type Value struct {
 	num int
 	bulk string
 	array []Value
+	isMap bool
+	truth bool
 }
 
 type Response struct {
@@ -69,10 +78,25 @@ func (r *Response) Read() (Value, error) {
 	switch respType {
 	case SIMPLE_STRING:
 		return r.ReadSimpleString()
+	case INTEGER:
+		x, err := r.ReadInteger()
+		if err != nil {
+			return Value{}, err
+		}
+		return Value{typ: "integer", num: x}, nil
+	case ERROR:
+		return r.ReadError()
 	case BULK_STRING:
 		return r.ReadBulkString()
 	case ARRAY:
 		return r.ReadArray()
+	case NULL:
+		return Value{typ: "null"}, nil
+	case BOOLEAN:
+		return r.ReadBoolean()
+	case MAP:
+		// Will return an array with the isMap flag set to true
+		return r.ReadMap()
 	default:
 		fmt.Println("Unknown type: ", respType)
 		return Value{}, nil
@@ -109,7 +133,7 @@ func (r *Response) ReadArray() (Value, error) {
 
 	arr := make([]Value, length) // Initialize array
 	for i := 0; i < length; i++ {
-		// Read each line with Read because each line is a bulk string
+		// Read each line with Read because each line can be any type
 		val, err := r.Read()
 		if err != nil {
 			return Value{}, err
@@ -121,25 +145,104 @@ func (r *Response) ReadArray() (Value, error) {
 	return Value{typ: "array", array: arr}, nil
 }
 
-// func ReadCRLF(data []byte, atEOF bool) (token []byte, err error) {
-// 	if atEOF && len(data) == 0 {
-// 		return nil, nil
-// 	}
-// 	if i := bytes.Index(data, []byte{'\r','\n'}); i >= 0 {
-// 		// CRLF found
-// 		return DropCR(data[:i]), nil
-// 	}
+func (r *Response) ReadError() (Value, error) {
+	line, err := r.ReadLine()
+	if err != nil {
+		return Value{}, err
+	}
+	return Value{typ: "error", str: string(line)}, nil
+}
 
-// 	// atEOF with no trailing \r\n
-// 	if atEOF {
-// 		return DropCR(data), nil
-// 	}
-// 	return nil, nil
-// }
+func (r *Response) ReadBoolean() (Value, error) {
+	line, err := r.ReadLine()
+	if err != nil {
+		return Value{}, err
+	}
+	if string(line) == "t" {
+		return Value{typ: "boolean", truth: true}, nil
+	} else {
+		return Value{typ: "boolean", truth: false}, nil
+	}
+}
 
-// func DropCR(data []byte) []byte {
-// 	// Drop the \r from the end of the data
-// 	if len(data) > 0 && data[len(data) - 1] == '\r' {
-// 		return data[:len(data) - 1]
-// 	}
-// }
+func (r *Response) ReadMap() (Value, error) {
+	length, err := r.ReadInteger()
+	if err != nil {
+		return Value{}, err
+	}
+
+	arr := make([]Value, length) // Initialize array
+	for i := 0; i < length; i++ {
+		// Read each line with Read because each line can be any type
+		val, err := r.Read()
+		if err != nil {
+			return Value{}, err
+		}
+
+		arr = append(arr, val)
+	}
+
+	return Value{typ: "array", array: arr, isMap: true}, nil
+
+	// // Read first key-value pair to get types
+	// key, err := r.Read()
+	// if err != nil {
+	// 	return Value{}, err
+	// }
+	// val, err := r.Read()
+	// if err != nil {
+	// 	return Value{}, err
+	// }
+
+	// keyType := key.typ
+	// valType := val.typ
+
+	// // Make map
+	// m := make(map[string]string)
+
+	// if keyType == "simple_string" || keyType == "bulk_string" || keyType == "error" {
+	// 	if valType == "simple_string" || valType == "bulk_string" || valType == "error" {
+	// 		m := make(map[string]string)
+	// 	} else if valType == "integer" {
+	// 		m := make(map[string]int)
+	// 	} else if valType == "boolean" {
+	// 		m := make(map[string]int)
+	// 	} else {
+	// 		return Value{}, errors.New("Map keys and values can only be primitive data types.")
+	// 	}
+	// } else if keyType == "integer" {
+	// 	if valType == "simple_string" || valType == "bulk_string" || valType == "error" {
+	// 		m := make(map[int]string)
+	// 	} else if valType == "integer" {
+	// 		m := make(map[int]int)
+	// 	} else if valType == "boolean" {
+	// 		m := make(map[int]int)
+	// 	} else {
+	// 		return Value{}, errors.New("Map keys and values can only be primitive data types.")
+	// 	}	
+	// } else if keyType == "boolean" {
+	// 	if valType == "simple_string" || valType == "bulk_string" || valType == "error" {
+	// 		m := make(map[bool]string)
+	// 	} else if valType == "integer" {
+	// 		m := make(map[bool]int)
+	// 	} else if valType == "boolean" {
+	// 		m := make(map[bool]int)
+	// 	} else {
+	// 		return Value{}, errors.New("Map keys and values can only be primitive data types.")
+	// 	}		
+	// } else {
+	// 	return Value{}, errors.New("Map keys and values can only be primitive data types.")
+	// }
+
+	// // Read array
+	// arr := r.ReadArray()
+	// for i := 0; i < len(arr); i += 2 {
+	// 	k := arr[i]
+	// 	v := arr[i+1]
+	// 	// Assume that all keys are distinct
+	// 	mp[k] = v
+	// }
+
+	// // TODO: change this to map
+	// return Value{typ: "map", array: arr}, nil
+}
