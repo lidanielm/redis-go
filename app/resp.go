@@ -182,7 +182,7 @@ func (r *Response) ReadMap() (Value, error) {
 		arr = append(arr, val)
 	}
 
-	return Value{typ: "array", array: arr, isMap: true}, nil
+	return Value{typ: "map", array: arr}, nil
 
 	// // Read first key-value pair to get types
 	// key, err := r.Read()
@@ -245,4 +245,117 @@ func (r *Response) ReadMap() (Value, error) {
 
 	// // TODO: change this to map
 	// return Value{typ: "map", array: arr}, nil
+}
+
+func (v Value) Marshal() []byte {
+	switch v.typ {
+	case "simple_string":
+		return v.marshalSimpleString()
+	case "integer":
+		return v.marshalInteger()
+	case "error":
+		// address error
+	case "bulk_string":
+		return v.marshalBulkString()
+	case "null":
+		return v.marshalNull()
+	case "array":
+		return v.marshalArray()
+	case "boolean":
+		return v.marshalBoolean()
+	case "map":
+		return v.marshalMap()
+	default:
+		return []byte
+	}
+}
+
+// Helper marshal functions
+func (v Value) marshalSimpleString() []byte {
+	var bytes []byte
+	bytes = append(bytes, STRING)
+	bytes = append(bytes, v.str...)
+	bytes = append(bytes, '\r', '\n')
+
+	return bytes
+}
+
+func (v Value) marshalInteger() []byte {
+	var bytes []byte
+	bytes = append(bytes, INTEGER)
+	bytes = append(bytes, v.num)
+	bytes = append(bytes, '\r', '\n')
+
+	return bytes
+}
+
+func (v Value) marshalBulkString() []byte {
+	len := len(v.str)
+
+	var bytes []byte
+	bytes = append(bytes, BULK_STRING)
+	bytes = append(bytes, strconv.Itoa(len)...)
+	bytes = append(bytes, '\r', '\n')
+	bytes = append(bytes, v.bulk...)
+	bytes = append(bytes, '\r', '\n')
+
+	return bytes
+}
+
+func (v Value) marshalArray() []byte {
+	len := len(v.array)
+
+	var bytes []byte
+	bytes = append(bytes, ARRAY)
+	bytes = append(bytes, strconv.Itoa(len)...)
+	bytes = append(bytes, '\r', '\n')
+	
+	for i := 0; i < len; i++ {
+		bytes = append(bytes, v.array[i].Marshal()...)
+	}
+	
+	return bytes
+}
+
+func (v Value) marshalBoolean() []byte {
+	var bytes []byte
+	bytes = append(bytes, BOOLEAN)
+	if v.boolean {
+		bytes = append(bytes, 't')
+	} else {
+		bytes = append(bytes, 'f')
+	}
+	bytes = append(bytes, '\r', '\n')
+
+	return bytes
+}
+
+func (v Value) marshalNull() []byte {
+	bytes := []byte{'_', '\r', '\n'}
+	return bytes
+}
+
+func (v Value) marshalMap() []byte {
+	numPairs := len(v.array) / 2
+
+	var bytes []byte
+	bytes = append(bytes, MAP)
+	bytes = append(bytes, strconv.Itoa(numPairs)...)
+	bytes = append(bytes, '\r', '\n')
+	
+	for i := 0; i < 2 * numPairs; i++ {
+		bytes := append(bytes, v.array[i].Marshal()...)
+	}
+
+	bytes = append(bytes, '\r', '\n')
+	return bytes
+}
+
+func (v Value) marshallError() []byte {
+	var bytes []byte
+	bytes = append(bytes, ERROR)
+	bytes = append(bytes, v.str...)
+	bytes = append(bytes, '\r', '\n')
+
+	return bytes
 }
