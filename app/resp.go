@@ -359,3 +359,24 @@ func (v Value) marshallError() []byte {
 
 	return bytes
 }
+
+// Writer type
+type Writer struct {
+	writer *bufio.Writer
+}
+
+func NewWriter(ioWriter io.Writer) *Writer {
+	writer := bufio.NewWriter(ioWriter)
+	return &Writer(writer: writer)
+}
+
+func (w *Writer) Write(v Value) error {
+	bytes := v.Marshal()
+
+	_, err := w.writer.Write(bytes)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
